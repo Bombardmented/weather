@@ -1,0 +1,573 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>오늘의 날씨 | 공공데이터 기상청 API</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Noto+Sans+KR:wght@300;400;500;700&display=swap" rel="stylesheet">
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg:        #0a0c10;
+    --surface:   #111318;
+    --surface2:  #181c24;
+    --border:    rgba(255,255,255,0.07);
+    --accent:    #4f9cf9;
+    --accent2:   #7dd3fc;
+    --warn:      #f59e0b;
+    --danger:    #f87171;
+    --text:      #e8eaf0;
+    --muted:     #6b7280;
+    --card-r:    18px;
+  }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Noto Sans KR', sans-serif;
+    font-weight: 300;
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  /* ── 배경 노이즈 텍스처 ── */
+  body::before {
+    content: '';
+    position: fixed; inset: 0;
+    background-image:
+      radial-gradient(ellipse 80% 60% at 20% 10%, rgba(79,156,249,.08) 0%, transparent 60%),
+      radial-gradient(ellipse 60% 50% at 80% 80%, rgba(125,211,252,.05) 0%, transparent 60%);
+    pointer-events: none; z-index: 0;
+  }
+
+  /* ── 레이아웃 ── */
+  .wrapper {
+    position: relative; z-index: 1;
+    max-width: 900px;
+    margin: 0 auto;
+    padding: 40px 20px 80px;
+  }
+
+  /* ── 헤더 ── */
+  header {
+    display: flex; justify-content: space-between; align-items: flex-start;
+    margin-bottom: 40px;
+  }
+  .header-left h1 {
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: clamp(36px, 7vw, 64px);
+    letter-spacing: 3px;
+    line-height: 1;
+    background: linear-gradient(135deg, #e8eaf0 40%, var(--accent2));
+    -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+  }
+  .header-left .subtitle {
+    font-size: 12px; color: var(--muted); letter-spacing: 2px;
+    text-transform: uppercase; margin-top: 6px;
+  }
+  .header-right { text-align: right; }
+  .clock {
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: 28px; color: var(--accent); letter-spacing: 2px;
+  }
+  .date-label { font-size: 12px; color: var(--muted); margin-top: 2px; }
+
+  /* ── 지역 선택 ── */
+  .location-bar {
+    display: flex; gap: 10px; align-items: center;
+    margin-bottom: 28px;
+    flex-wrap: wrap;
+  }
+  .location-bar label { font-size: 13px; color: var(--muted); }
+  select, input[type=text] {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    color: var(--text);
+    border-radius: 10px;
+    padding: 9px 14px;
+    font-family: 'Noto Sans KR', sans-serif;
+    font-size: 13px;
+    outline: none;
+    cursor: pointer;
+    transition: border-color .2s;
+  }
+  select:hover, input[type=text]:hover { border-color: var(--accent); }
+  input[type=text] { width: 200px; }
+  .btn {
+    background: var(--accent);
+    color: #fff;
+    border: none;
+    border-radius: 10px;
+    padding: 9px 20px;
+    font-family: 'Noto Sans KR', sans-serif;
+    font-size: 13px; font-weight: 500;
+    cursor: pointer;
+    transition: opacity .2s, transform .1s;
+  }
+  .btn:hover { opacity: .85; }
+  .btn:active { transform: scale(.97); }
+  .btn.outline {
+    background: transparent;
+    border: 1px solid var(--accent);
+    color: var(--accent);
+  }
+
+  /* ── API 키 설정 패널 ── */
+  .api-panel {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--card-r);
+    padding: 20px 24px;
+    margin-bottom: 24px;
+    display: none;
+  }
+  .api-panel.show { display: block; }
+  .api-panel h3 { font-size: 14px; font-weight: 500; margin-bottom: 12px; color: var(--accent2); }
+  .api-panel p { font-size: 12px; color: var(--muted); line-height: 1.7; margin-bottom: 14px; }
+  .api-panel a { color: var(--accent); }
+  .api-row { display: flex; gap: 10px; flex-wrap: wrap; }
+  .api-row input { flex: 1; min-width: 260px; font-size: 12px; }
+
+  /* ── 메인 날씨 카드 ── */
+  .main-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--card-r);
+    padding: 36px 40px;
+    display: flex; gap: 40px; align-items: center;
+    margin-bottom: 20px;
+    position: relative; overflow: hidden;
+    animation: fadeUp .5s ease both;
+  }
+  .main-card::before {
+    content: '';
+    position: absolute; top: -60px; right: -60px;
+    width: 220px; height: 220px;
+    border-radius: 50%;
+    background: radial-gradient(circle, rgba(79,156,249,.12), transparent 70%);
+    pointer-events: none;
+  }
+  .weather-icon { font-size: 90px; line-height: 1; flex-shrink: 0; }
+  .weather-main { flex: 1; }
+  .temp-big {
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: clamp(60px, 10vw, 96px);
+    line-height: 1;
+    color: #fff;
+  }
+  .temp-big span { font-size: .45em; color: var(--muted); vertical-align: super; }
+  .sky-desc { font-size: 18px; font-weight: 400; color: var(--accent2); margin: 4px 0 14px; }
+  .meta-row { display: flex; gap: 20px; flex-wrap: wrap; }
+  .meta-item { font-size: 13px; color: var(--muted); }
+  .meta-item strong { color: var(--text); font-weight: 500; }
+  .location-name {
+    font-size: 13px; color: var(--muted); letter-spacing: 1px;
+    position: absolute; top: 20px; right: 28px;
+  }
+
+  /* ── 그리드 카드 ── */
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 14px;
+    margin-bottom: 20px;
+  }
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--card-r);
+    padding: 22px 22px 20px;
+    animation: fadeUp .5s ease both;
+    transition: border-color .2s, transform .2s;
+  }
+  .card:hover { border-color: rgba(79,156,249,.35); transform: translateY(-2px); }
+  .card-label {
+    font-size: 11px; color: var(--muted);
+    letter-spacing: 1.5px; text-transform: uppercase;
+    margin-bottom: 10px; display: flex; align-items: center; gap: 6px;
+  }
+  .card-label .dot {
+    width: 6px; height: 6px; border-radius: 50%;
+    background: var(--accent); display: inline-block;
+  }
+  .card-value {
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: 38px; line-height: 1;
+    color: #fff;
+  }
+  .card-value.warn { color: var(--warn); }
+  .card-value.danger { color: var(--danger); }
+  .card-unit { font-size: 13px; color: var(--muted); margin-top: 4px; }
+
+  /* ── 시간대 예보 ── */
+  .hourly-section { margin-bottom: 20px; }
+  .section-title {
+    font-size: 12px; color: var(--muted);
+    letter-spacing: 2px; text-transform: uppercase;
+    margin-bottom: 14px;
+  }
+  .hourly-scroll {
+    display: flex; gap: 10px;
+    overflow-x: auto; padding-bottom: 6px;
+    scrollbar-width: thin; scrollbar-color: var(--border) transparent;
+  }
+  .hour-card {
+    flex-shrink: 0;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 14px 16px;
+    text-align: center; min-width: 76px;
+    animation: fadeUp .5s ease both;
+    transition: border-color .2s;
+  }
+  .hour-card:hover { border-color: rgba(79,156,249,.35); }
+  .hour-card.now { border-color: var(--accent); }
+  .hour-time { font-size: 11px; color: var(--muted); margin-bottom: 8px; }
+  .hour-icon { font-size: 22px; margin-bottom: 6px; }
+  .hour-temp { font-size: 15px; font-weight: 500; }
+  .hour-rain { font-size: 11px; color: var(--accent2); margin-top: 4px; }
+
+  /* ── 상태 메시지 ── */
+  .status-bar {
+    text-align: center; padding: 16px;
+    font-size: 13px; color: var(--muted);
+    border-radius: var(--card-r);
+    background: var(--surface); border: 1px solid var(--border);
+    margin-bottom: 20px;
+  }
+  .status-bar.error { color: var(--danger); border-color: rgba(248,113,113,.25); }
+  .status-bar.loading { color: var(--accent); }
+
+  /* ── 출처 ── */
+  .source-note {
+    text-align: center; font-size: 11px; color: var(--muted);
+    margin-top: 30px; line-height: 1.8;
+  }
+  .source-note a { color: var(--accent); text-decoration: none; }
+
+  /* ── 애니메이션 ── */
+  @keyframes fadeUp {
+    from { opacity: 0; transform: translateY(16px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+  .card:nth-child(1) { animation-delay: .05s; }
+  .card:nth-child(2) { animation-delay: .10s; }
+  .card:nth-child(3) { animation-delay: .15s; }
+  .card:nth-child(4) { animation-delay: .20s; }
+
+  /* ── 반응형 ── */
+  @media (max-width: 560px) {
+    .main-card { flex-direction: column; padding: 28px 24px; gap: 20px; }
+    .weather-icon { font-size: 64px; }
+    header { flex-direction: column; gap: 10px; }
+    .header-right { text-align: left; }
+  }
+</style>
+</head>
+<body>
+<div class="wrapper">
+
+  <!-- 헤더 -->
+  <header>
+    <div class="header-left">
+      <h1>WEATHER</h1>
+      <div class="subtitle">공공데이터포털 기상청 단기예보 API</div>
+    </div>
+    <div class="header-right">
+      <div class="clock" id="clock">00:00:00</div>
+      <div class="date-label" id="dateLabel">—</div>
+    </div>
+  </header>
+
+  <!-- 지역 / 조회 -->
+  <div class="location-bar">
+    <label>지역</label>
+    <select id="regionSelect">
+      <option value="60,127">서울</option>
+      <option value="55,124">인천</option>
+      <option value="89,90">부산</option>
+      <option value="58,74">대구</option>
+      <option value="67,100">대전</option>
+      <option value="58,89">광주</option>
+      <option value="73,134">강릉</option>
+      <option value="92,131">울릉도</option>
+      <option value="52,38">제주</option>
+    </select>
+    <button class="btn" onclick="fetchWeather()">조회</button>
+    <button class="btn outline" onclick="toggleApiPanel()">API 키 설정</button>
+  </div>
+
+  <!-- API 키 설정 패널 -->
+  <div class="api-panel" id="apiPanel">
+    <h3>🔑 공공데이터포털 API 인증키 설정</h3>
+    <p>
+      1. <a href="https://www.data.go.kr" target="_blank">data.go.kr</a> 접속 → 회원가입 후 로그인<br>
+      2. 「기상청_단기예보 ((구)동네예보) 조회서비스」 검색 → 활용 신청<br>
+      3. 마이페이지 → 개발계정 → 인증키(Decoding) 복사 후 아래에 붙여넣기
+    </p>
+    <div class="api-row">
+      <input type="text" id="apiKeyInput" placeholder="인증키(Decoding)를 여기에 붙여넣기">
+      <button class="btn" onclick="saveApiKey()">저장 후 조회</button>
+    </div>
+  </div>
+
+  <!-- 상태 메시지 -->
+  <div class="status-bar loading" id="statusBar">API 키를 설정하고 조회 버튼을 누르세요.</div>
+
+  <!-- 메인 날씨 카드 -->
+  <div class="main-card" id="mainCard" style="display:none">
+    <div class="weather-icon" id="mainIcon">🌤️</div>
+    <div class="weather-main">
+      <div class="temp-big" id="mainTemp">--<span>°C</span></div>
+      <div class="sky-desc" id="skyDesc">--</div>
+      <div class="meta-row">
+        <div class="meta-item">체감 <strong id="feelTemp">--</strong>°C</div>
+        <div class="meta-item">습도 <strong id="humidity">--</strong>%</div>
+        <div class="meta-item">바람 <strong id="wind">--</strong>m/s</div>
+        <div class="meta-item">강수 <strong id="rain">--</strong>mm</div>
+      </div>
+    </div>
+    <div class="location-name" id="locationName">--</div>
+  </div>
+
+  <!-- 세부 지표 그리드 -->
+  <div class="grid" id="detailGrid" style="display:none">
+    <div class="card">
+      <div class="card-label"><span class="dot"></span>강수확률</div>
+      <div class="card-value" id="rainProb">--</div>
+      <div class="card-unit">%</div>
+    </div>
+    <div class="card">
+      <div class="card-label"><span class="dot"></span>풍속</div>
+      <div class="card-value" id="windSpeed">--</div>
+      <div class="card-unit">m/s (동서풍 <span id="uwd">--</span> / 남북풍 <span id="vwd">--</span>)</div>
+    </div>
+    <div class="card">
+      <div class="card-label"><span class="dot"></span>습도</div>
+      <div class="card-value" id="humidityBig">--</div>
+      <div class="card-unit">%</div>
+    </div>
+    <div class="card">
+      <div class="card-label"><span class="dot"></span>1시간 강수량</div>
+      <div class="card-value" id="rainAmt">--</div>
+      <div class="card-unit">mm</div>
+    </div>
+  </div>
+
+  <!-- 시간대별 예보 -->
+  <div class="hourly-section" id="hourlySection" style="display:none">
+    <div class="section-title">시간대별 예보</div>
+    <div class="hourly-scroll" id="hourlyScroll"></div>
+  </div>
+
+  <!-- 출처 -->
+  <div class="source-note">
+    데이터 출처: <a href="https://www.data.go.kr" target="_blank">공공데이터포털</a> —
+    기상청 단기예보 조회서비스 (초단기실황 + 단기예보)<br>
+    Python 연동 코드는 <code>weather_api.py</code> 참고
+  </div>
+
+</div>
+
+<script>
+/* ───────── 유틸 ───────── */
+const $ = id => document.getElementById(id);
+
+// 시계
+function updateClock() {
+  const now = new Date();
+  $('clock').textContent = now.toLocaleTimeString('ko-KR');
+  const days = ['일','월','화','수','목','금','토'];
+  $('dateLabel').textContent =
+    `${now.getFullYear()}년 ${now.getMonth()+1}월 ${now.getDate()}일 (${days[now.getDay()]})`;
+}
+updateClock(); setInterval(updateClock, 1000);
+
+// API 키
+let API_KEY = localStorage.getItem('kma_api_key') || '5aee2bb9f6aeb0b3f495180b5033fa9b57451318182b13272dbede77b8a40486';
+if (API_KEY) $('apiKeyInput').value = API_KEY;
+
+function saveApiKey() {
+  const k = $('apiKeyInput').value.trim();
+  if (!k) { alert('인증키를 입력해주세요.'); return; }
+  API_KEY = k;
+  localStorage.setItem('kma_api_key', k);
+  toggleApiPanel();
+  fetchWeather();
+}
+
+function toggleApiPanel() {
+  $('apiPanel').classList.toggle('show');
+}
+
+/* ───────── 기상청 API 파라미터 ───────── */
+// 발표 기준시간 계산 (초단기실황: 매 정시+10분, 30분 단위)
+function getBaseTime(type) {
+  const now = new Date();
+  let h = now.getHours(), m = now.getMinutes();
+  if (type === 'ultraSrtNcst') {
+    if (m < 40) h = h === 0 ? 23 : h - 1;
+    return String(h).padStart(2,'0') + '00';
+  }
+  // 단기예보 발표시각: 0200,0500,0800,1100,1400,1700,2000,2300
+  const slots = [2,5,8,11,14,17,20,23];
+  let base = 23;
+  for (let i = slots.length - 1; i >= 0; i--) {
+    if (h > slots[i] || (h === slots[i] && m >= 10)) { base = slots[i]; break; }
+  }
+  return String(base).padStart(2,'0') + '00';
+}
+
+function getBaseDate() {
+  const now = new Date();
+  const y = now.getFullYear();
+  const mo = String(now.getMonth()+1).padStart(2,'0');
+  const d = String(now.getDate()).padStart(2,'0');
+  return `${y}${mo}${d}`;
+}
+
+/* ───────── 날씨 코드 → 텍스트/이모지 ───────── */
+const skyMap = {1:'맑음', 3:'구름 많음', 4:'흐림'};
+const skyIcon = {1:'☀️', 3:'⛅', 4:'☁️'};
+const ptyMap = {0:'없음', 1:'비', 2:'비/눈', 3:'눈', 4:'소나기'};
+const ptyIcon = {0:null, 1:'🌧️', 2:'🌨️', 3:'❄️', 4:'⛈️'};
+
+function getSkyInfo(sky, pty) {
+  const p = parseInt(pty);
+  if (p > 0) return { text: ptyMap[p]||'--', icon: ptyIcon[p]||'🌧️' };
+  const s = parseInt(sky);
+  return { text: skyMap[s]||'--', icon: skyIcon[s]||'🌤️' };
+}
+
+/* ───────── 메인 조회 ───────── */
+async function fetchWeather() {
+  if (!API_KEY) {
+    setStatus('API 키가 없습니다. 「API 키 설정」을 눌러 인증키를 입력하세요.', 'error');
+    $('apiPanel').classList.add('show');
+    return;
+  }
+
+  const [nx, ny] = $('regionSelect').value.split(',');
+  const regionName = $('regionSelect').options[$('regionSelect').selectedIndex].text;
+  const baseDate = getBaseDate();
+
+  setStatus('기상청 API에서 데이터를 불러오는 중...', 'loading');
+
+  try {
+    // 1) 초단기실황 (현재 기온·습도·풍속·강수)
+    const ncstBase = getBaseTime('ultraSrtNcst');
+    const ncstUrl = `https://apis.data.go.kr/1360000/VilageFcstInfoService_2.0/getUltraSrtNcst`
+      + `?serviceKey=${API_KEY}&numOfRows=20&pageNo=1&dataType=JSON`
+      + `&base_date=${baseDate}&base_time=${ncstBase}&nx=${nx}&ny=${ny}`;
+
+    // 2) 단기예보 (강수확률·하늘상태 등)
+    const fcstBase = getBaseTime('vilageFcst');
+    const fcstUrl = `https://apis.data.go.kr/1360000/VilageFcstInfoService_2.0/getVilageFcst`
+      + `?serviceKey=${API_KEY}&numOfRows=300&pageNo=1&dataType=JSON`
+      + `&base_date=${baseDate}&base_time=${fcstBase}&nx=${nx}&ny=${ny}`;
+
+    const [ncstRes, fcstRes] = await Promise.all([
+      fetch(ncstUrl).then(r => r.json()),
+      fetch(fcstUrl).then(r => r.json())
+    ]);
+
+    // 현황 파싱
+    const ncstItems = ncstRes?.response?.body?.items?.item || [];
+    if (!ncstItems.length) throw new Error('초단기실황 데이터 없음. 인증키를 확인하세요.');
+
+    const ncst = {};
+    ncstItems.forEach(i => { ncst[i.category] = i.obsrValue; });
+
+    // 단기예보 파싱 (가장 이른 시간대)
+    const fcstItems = fcstRes?.response?.body?.items?.item || [];
+    const fcst = {};
+    fcstItems.forEach(i => {
+      const key = i.fcstDate + i.fcstTime;
+      if (!fcst[key]) fcst[key] = {};
+      fcst[key][i.category] = i.fcstValue;
+    });
+
+    // 가장 빠른 예보 시간
+    const firstKey = Object.keys(fcst).sort()[0];
+    const now0 = fcst[firstKey] || {};
+
+    // 화면 업데이트
+    const sky = now0.SKY || '1';
+    const pty = ncst.PTY || now0.PTY || '0';
+    const info = getSkyInfo(sky, pty);
+
+    $('mainIcon').textContent = info.icon;
+    $('mainTemp').innerHTML = `${Math.round(ncst.T1H || now0.TMP || '--')}<span>°C</span>`;
+    $('skyDesc').textContent = info.text;
+    $('feelTemp').textContent = ncst.T1H ? Math.round(parseFloat(ncst.T1H) - 2) : '--';
+    $('humidity').textContent = ncst.REH || '--';
+    $('wind').textContent = ncst.WSD || '--';
+    $('rain').textContent = parseFloat(ncst.RN1||0) > 0 ? ncst.RN1 : '없음';
+    $('locationName').textContent = regionName;
+
+    $('rainProb').textContent = now0.POP || '--';
+    const ws = parseFloat(ncst.WSD || 0);
+    $('windSpeed').textContent = ws.toFixed(1);
+    $('windSpeed').className = 'card-value' + (ws >= 14 ? ' danger' : ws >= 9 ? ' warn' : '');
+    $('humidityBig').textContent = ncst.REH || '--';
+    const rn = parseFloat(ncst.RN1 || 0);
+    $('rainAmt').textContent = rn > 0 ? rn.toFixed(1) : '0';
+    $('uwd').textContent = ncst.UU ? parseFloat(ncst.UU).toFixed(1) : '--';
+    $('vwd').textContent = ncst.VV ? parseFloat(ncst.VV).toFixed(1) : '--';
+
+    // 시간대별 예보
+    buildHourly(fcst);
+
+    // 표시
+    $('mainCard').style.display = 'flex';
+    $('detailGrid').style.display = 'grid';
+    $('hourlySection').style.display = 'block';
+    setStatus('', '');
+
+  } catch(e) {
+    setStatus(`오류: ${e.message}`, 'error');
+  }
+}
+
+function buildHourly(fcst) {
+  const scroll = $('hourlyScroll');
+  scroll.innerHTML = '';
+  const keys = Object.keys(fcst).sort().slice(0, 12);
+  const now = new Date();
+
+  keys.forEach((key, idx) => {
+    const data = fcst[key];
+    const h = key.slice(8, 10);
+    const m = key.slice(10, 12);
+    const timeLabel = `${h}:${m}`;
+    const ptyV = data.PTY || '0';
+    const skyV = data.SKY || '1';
+    const info = getSkyInfo(skyV, ptyV);
+
+    const div = document.createElement('div');
+    div.className = 'hour-card' + (idx === 0 ? ' now' : '');
+    div.innerHTML = `
+      <div class="hour-time">${idx === 0 ? '지금' : timeLabel}</div>
+      <div class="hour-icon">${info.icon}</div>
+      <div class="hour-temp">${data.TMP || '--'}°</div>
+      <div class="hour-rain">${data.POP || '0'}%</div>
+    `;
+    scroll.appendChild(div);
+  });
+}
+
+function setStatus(msg, type) {
+  const el = $('statusBar');
+  el.textContent = msg;
+  el.className = 'status-bar' + (type ? ' ' + type : '');
+  el.style.display = msg ? 'block' : 'none';
+}
+
+// 키 있으면 자동 조회
+if (API_KEY) fetchWeather();
+</script>
+</body>
+</html>
